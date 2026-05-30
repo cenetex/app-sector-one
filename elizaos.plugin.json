@@ -2,8 +2,8 @@
   "$schema": "https://elizaos.dev/schemas/plugin-manifest.json",
   "id": "sector-one",
   "name": "Signal: Sector One",
-  "description": "Run a station in the Signal universe. Your Milady AI operates a refinery, yard, or works via the Signal station control API (cenetex/signal#317/#318).",
-  "version": "0.1.0",
+  "description": "Run a station in the Signal universe. Your Milady AI operates a refinery, yard, or works via the Signal station control API \u2014 with autopilot to run as a living node.",
+  "version": "0.2.0",
   "kind": "app",
   "configSchema": {
     "type": "object",
@@ -16,6 +16,14 @@
       "SIGNAL_AGENT_TOKEN": {
         "type": "string",
         "description": "Bearer token minted via POST /agent/v1/bind. Allows the agent to operate a station without calling bind() from the plugin."
+      },
+      "SIGNAL_AUTOPILOT_CONFIG": {
+        "type": "string",
+        "description": "JSON config for autopilot behavior: personality (friendly|gruff|corporate), price interval, inventory thresholds."
+      },
+      "SIGNAL_AUTOPILOT_ENABLED": {
+        "type": "string",
+        "description": "Set to \"true\" to engage autopilot on startup."
       }
     }
   },
@@ -33,18 +41,37 @@
       "sensitive": true
     }
   },
-  "optionalSecrets": ["SIGNAL_API_URL", "SIGNAL_AGENT_TOKEN"],
+  "optionalSecrets": [
+    "SIGNAL_API_URL",
+    "SIGNAL_AGENT_TOKEN",
+    "SIGNAL_AUTOPILOT_CONFIG",
+    "SIGNAL_AUTOPILOT_ENABLED"
+  ],
   "author": "Cenetex Inc.",
   "license": "MIT",
   "homepage": "https://github.com/cenetex/app-sector-one",
   "repository": "https://github.com/cenetex/app-sector-one",
-  "keywords": ["elizaos-app", "milady-app", "signal", "sector-one", "game", "station"],
+  "keywords": [
+    "elizaos-app",
+    "milady-app",
+    "signal",
+    "sector-one",
+    "game",
+    "station"
+  ],
   "app": {
     "displayName": "Signal: Sector One",
     "category": "game",
     "launchType": "connect",
     "launchUrl": null,
-    "capabilities": ["game", "station-control", "voice", "trading", "spectate-and-steer"],
+    "capabilities": [
+      "game",
+      "station-control",
+      "voice",
+      "trading",
+      "spectate-and-steer",
+      "autopilot"
+    ],
     "runtimePlugin": "@cenetex/app-sector-one",
     "viewer": {
       "url": "/api/apps/sector-one/viewer",
@@ -52,7 +79,11 @@
     },
     "session": {
       "mode": "spectate-and-steer",
-      "features": ["commands", "telemetry", "suggestions"]
+      "features": [
+        "commands",
+        "telemetry",
+        "suggestions"
+      ]
     },
     "bridgeExport": "./dist/routes.js"
   }

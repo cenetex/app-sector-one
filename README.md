@@ -24,9 +24,11 @@ import { sectorOnePlugin } from "@cenetex/app-sector-one";
 
 // plugin.actions:
 //   BIND_STATION, SET_STATION_PRICES, GREET_PILOT,
+//   AUTOPILOT_STATION,
 //   RESPOND_TO_RADIO, UPGRADE_STATION, STATION_STATUS
 // plugin.services:
-//   SignalStationService (REST + WS /agent/v1/events)
+//   SignalStationService (REST + WS /agent/v1/events),
+//   AutopilotService (autonomous station operation)
 ```
 
 ## Config
@@ -52,6 +54,43 @@ station?.onEvent((ev) => {
   }
 });
 ```
+
+
+## Autopilot (v0.2.0)
+
+Engage `AUTOPILOT_STATION` to make your station a living node in the Signal universe. The autopilot:
+
+- **Greets every docking pilot** with personality-appropriate voice lines
+- **Adjusts commodity prices** based on inventory levels (low stock raises buy, overstocked discounts)
+- **Responds to radio hails** on the open channel
+- **Reacts to trade and repair events** — refreshing station state after each interaction
+
+### Config
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `SIGNAL_AUTOPILOT_CONFIG` | JSON (see below) | Autopilot behavior config |
+| `SIGNAL_AUTOPILOT_ENABLED` | `"false"` | Set to `"true"` to engage on startup |
+
+Default config:
+```json
+{
+  "personality": "friendly",
+  "priceIntervalMs": 60000,
+  "inventoryLowThreshold": 20,
+  "inventoryHighThreshold": 200,
+  "hullRepairThreshold": 0.5,
+  "greetOnDock": true,
+  "respondToRadio": true
+}
+```
+
+### Personalities
+
+- `friendly` — warm, conversational greetings
+- `gruff` — terse, no-nonsense station operator
+- `corporate` — formal, procedural announcements
+
 
 ## Develop
 
