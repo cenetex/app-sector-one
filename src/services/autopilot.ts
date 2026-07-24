@@ -3,7 +3,7 @@ import { SignalStationService } from "./station-service.js";
 import type { StationEvent, StationState } from "../types.js";
 
 /** Configuration knobs for autonomous station behavior. */
-interface AutopilotConfig {
+export interface AutopilotConfig {
   /** How often (ms) to re-evaluate pricing. */
   priceIntervalMs: number;
   /** Low inventory threshold — trigger a discount if any commodity drops below this. */
@@ -47,35 +47,32 @@ export class AutopilotService extends Service {
   capabilityDescription =
     "Autonomous station operator — greets pilots, adjusts prices, reacts to events.";
 
-  private runtime: IAgentRuntime | null = null;
   private stationSvc: SignalStationService | null = null;
-  private config: AutopilotConfig = { ...DEFAULT_CONFIG };
+  private autopilotConfig: AutopilotConfig = { ...DEFAULT_CONFIG };
   private enabled = false;
   private priceTimer: ReturnType<typeof setInterval> | undefined;
   private unsubscribe: (() => void) | undefined;
   private lastStationState: StationState | null = null;
 
-  async initialize(runtime: IAgentRuntime): Promise<void> {
-    this.runtime = runtime;
+  constructor(runtime?: IAgentRuntime) {
+    super(runtime);
+    if (!runtime) return;
     this.stationSvc = runtime.getService<SignalStationService>(
       SignalStationService.serviceType,
-    ) as SignalStationService | null;
-    this.loadConfig(runtime);
+    );
+    this.autopilotConfig = loadConfig(runtime);
   }
 
-  private loadConfig(runtime: IAgentRuntime): void {
-    const raw = runtime.getSetting("SIGNAL_AUTOPILOT_CONFIG");
-    if (raw && typeof raw === "string") {
-      try {
-        this.config = { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-      } catch {
-        console.warn("[autopilot] failed to parse SIGNAL_AUTOPILOT_CONFIG, using defaults");
-      }
-    }
+  static async start(runtime: IAgentRuntime): Promise<AutopilotService> {
+    return new AutopilotService(runtime);
+  }
+
+  getConfig(): Readonly<AutopilotConfig> {
+    return { ...this.autopilotConfig };
   }
 
   /** Start autonomous operation. */
-  start(): string {
+  engage(): string {
     if (this.enabled) return "Autopilot is already running.";
 
     if (!this.stationSvc) {
@@ -96,7 +93,7 @@ export class AutopilotService extends Service {
       this.evaluatePrices().catch((err) =>
         console.warn("[autopilot] price eval error:", err),
       );
-    }, this.config.priceIntervalMs);
+    }, this.autopilotConfig.priceIntervalMs);
 
     // Initial state fetch
     this.fetchState().catch((err) =>
@@ -107,16 +104,28 @@ export class AutopilotService extends Service {
     return "Autopilot engaged. Station is now operating autonomously.";
   }
 
-  /** Stop autonomous operation. */
-  stop(): string {
+  /** Stop autonomous operation and return a user-facing status message. */
+  disengage(): string {
+    this.disable();
+    console.log("[autopilot] stopped");
+    return "Autopilot disengaged. Manual control resumed.";
+  }
+
+  /** Framework lifecycle hook. */
+  async stop(): Promise<void> {
+    this.disable();
+  }
+
+  private disable(): void {
     this.enabled = false;
-    if (this.priceTimer) clearInterval(this.priceTimer);
+    if (this.priceTimer) {
+      clearInterval(this.priceTimer);
+      this.priceTimer = undefined;
+    }
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = undefined;
     }
-    console.log("[autopilot] stopped");
-    return "Autopilot disengaged. Manual control resumed.";
   }
 
   isEnabled(): boolean {
@@ -128,7 +137,7 @@ export class AutopilotService extends Service {
 
     switch (event.type) {
       case "dock":
-        if (this.config.greetOnDock) {
+        if (this.autopilotConfig.greetOnDock) {
           const line = this.generateGreeting(event.pilot.handle, event.pilot.ship_class);
           await this.stationSvc.sendVoice({ channel: "dock", pilot_handle: event.pilot.handle, line });
           console.log(`[autopilot] greeted ${event.pilot.handle} (${event.pilot.ship_class})`);
@@ -145,7 +154,7 @@ export class AutopilotService extends Service {
         break;
 
       case "radio":
-        if (this.config.respondToRadio) {
+        if (this.autopilotConfig.respondToRadio) {
           const line = this.generateRadioReply(event.pilot_handle, event.line);
           await this.stationSvc.sendVoice({ channel: "radio", pilot_handle: event.pilot_handle, line });
           console.log(`[autopilot] replied to radio from ${event.pilot_handle}`);
@@ -181,7 +190,8 @@ export class AutopilotService extends Service {
       ],
     };
 
-    const pool = greetings[this.config.personality] ?? greetings.friendly;
+    const pool =
+      greetings[this.autopilotConfig.personality] ?? greetings.friendly;
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
@@ -203,7 +213,7 @@ export class AutopilotService extends Service {
       ],
     };
 
-    const pool = replies[this.config.personality] ?? replies.friendly;
+    const pool = replies[this.autopilotConfig.personality] ?? replies.friendly;
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
@@ -219,11 +229,11 @@ export class AutopilotService extends Service {
 
       let { buy, sell } = currentPrice;
 
-      if (item.quantity < this.config.inventoryLowThreshold) {
+      if (item.quantity < this.autopilotConfig.inventoryLowThreshold) {
         // Low stock — raise buy price to attract sellers, raise sell price
         buy = Math.round(buy * 1.2);
         sell = Math.round(sell * 1.1);
-      } else if (item.quantity > this.config.inventoryHighThreshold) {
+      } else if (item.quantity > this.autopilotConfig.inventoryHighThreshold) {
         // Overstocked — lower buy price, discount sales
         buy = Math.round(buy * 0.8);
         sell = Math.round(sell * 0.9);
@@ -256,5 +266,85 @@ export class AutopilotService extends Service {
     } catch (err) {
       console.warn("[autopilot] state fetch failed:", err);
     }
+  }
+}
+
+function loadConfig(runtime: IAgentRuntime): AutopilotConfig {
+  const raw = runtime.getSetting("SIGNAL_AUTOPILOT_CONFIG");
+  if (typeof raw !== "string" || raw.trim() === "") {
+    return { ...DEFAULT_CONFIG };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.warn(
+      "[autopilot] failed to parse SIGNAL_AUTOPILOT_CONFIG, using defaults",
+    );
+    return { ...DEFAULT_CONFIG };
+  }
+
+  if (!isRecord(parsed)) {
+    console.warn(
+      "[autopilot] SIGNAL_AUTOPILOT_CONFIG must be an object, using defaults",
+    );
+    return { ...DEFAULT_CONFIG };
+  }
+
+  const config = { ...DEFAULT_CONFIG };
+  applyPositiveNumber(parsed, "priceIntervalMs", config);
+  applyNonNegativeNumber(parsed, "inventoryLowThreshold", config);
+  applyNonNegativeNumber(parsed, "inventoryHighThreshold", config);
+
+  const hullRepairThreshold = parsed.hullRepairThreshold;
+  if (
+    typeof hullRepairThreshold === "number" &&
+    Number.isFinite(hullRepairThreshold) &&
+    hullRepairThreshold >= 0 &&
+    hullRepairThreshold <= 1
+  ) {
+    config.hullRepairThreshold = hullRepairThreshold;
+  }
+
+  if (typeof parsed.greetOnDock === "boolean") {
+    config.greetOnDock = parsed.greetOnDock;
+  }
+  if (typeof parsed.respondToRadio === "boolean") {
+    config.respondToRadio = parsed.respondToRadio;
+  }
+  if (
+    typeof parsed.personality === "string" &&
+    parsed.personality.trim() !== ""
+  ) {
+    config.personality = parsed.personality;
+  }
+
+  return config;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function applyPositiveNumber(
+  source: Record<string, unknown>,
+  key: "priceIntervalMs",
+  target: AutopilotConfig,
+): void {
+  const value = source[key];
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    target[key] = value;
+  }
+}
+
+function applyNonNegativeNumber(
+  source: Record<string, unknown>,
+  key: "inventoryLowThreshold" | "inventoryHighThreshold",
+  target: AutopilotConfig,
+): void {
+  const value = source[key];
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    target[key] = value;
   }
 }

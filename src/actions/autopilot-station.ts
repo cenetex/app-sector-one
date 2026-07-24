@@ -34,10 +34,10 @@ export const autopilotStationAction: Action = {
     }
 
     if (enable) {
-      const msg = ap.start();
+      const msg = ap.engage();
       return { success: true, text: msg };
     } else {
-      const msg = ap.stop();
+      const msg = ap.disengage();
       return { success: true, text: msg };
     }
   },
